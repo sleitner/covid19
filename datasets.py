@@ -95,46 +95,45 @@ def _enhance_covid_stats(df):
 
 class Datasets():
     def __init__(self):
-        return
+        data_dir = 'data/raw/covid-19-data/'
+        if not os.path.exists(data_dir):
+            raise ValueError('Need NYT data to be cloned into data/raw/')
+        else:
+            dtypes = {'fips': str}
+            self.county_path = data_dir + 'us-counties.csv'
+            self.states_path = data_dir + 'us-states.csv'
+            self.counties = pd.read_csv(self.county_path, dtype=dtypes)
+            self.states = pd.read_csv(self.states_path, dtype=dtypes)
 
     def covid_data(self):
         # https://github.com/nytimes/covid-19-data/
-        fn = 'data/raw/covid-19-data/us-counties.csv'
-        exists = os.path.exists(fn)
-        if exists: # and self.env=='development':
-            counties = pd.read_csv(fn,dtype={'fips':str,})
-            counties.rename(columns={'cases':'confirmed'}, inplace=True)
+        counties = self.counties
+        counties.rename(columns={'cases':'confirmed'}, inplace=True)
 
-            # date   county  state   fips    cases   deaths
-            dates = counties['date'].apply(lambda x: datetime.datetime.strptime(x,'%Y-%m-%d'))
-            counties['date'] = dates
-            logic = counties.date > datetime.datetime.strptime('2020-03-10','%Y-%m-%d')
-            counties = counties[logic]
-            counties['state_abbr'] = counties['state'].apply(lambda x: us_state_abbrev[x] if x in us_state_abbrev.keys() else x)
-            counties.loc[counties.county=='New York City','fips']='36061' # associate NYC with a population
-            counties['geo_label'] = counties['county'].apply(
-                lambda x: x.title()) + ', ' + \
-                    counties['state_abbr'].apply(lambda x:x.upper())
-            counties = counties[~pd.isnull(counties.fips)]
+        # date   county  state   fips    cases   deaths
+        dates = counties['date'].apply(lambda x: datetime.datetime.strptime(x,'%Y-%m-%d'))
+        counties['date'] = dates
+        logic = counties.date > datetime.datetime.strptime('2020-03-10','%Y-%m-%d')
+        counties = counties[logic]
+        counties['state_abbr'] = counties['state'].apply(lambda x: us_state_abbrev[x] if x in us_state_abbrev.keys() else x)
+        counties.loc[counties.county=='New York City','fips']='36061' # associate NYC with a population
+        counties['geo_label'] = counties['county'].apply(
+            lambda x: x.title()) + ', ' + \
+                counties['state_abbr'].apply(lambda x:x.upper())
+        counties = counties[~pd.isnull(counties.fips)]
 
-            fn = 'data/raw/covid-19-data/us-states.csv'
-            covid_state =  pd.read_csv(fn,dtype={'fips':str,}).rename(columns={'cases':'confirmed'})
-            #date   state   fips    cases   deaths
-            covid_state['state_abbr'] = covid_state['state'].apply(lambda x: us_state_abbrev[x] if x in us_state_abbrev.keys() else x)
-            covid_state['geo_label'] = covid_state['state'].apply(lambda x: x.title())
-            covid_state = covid_state[~pd.isnull(covid_state.fips)]
-            covid_state['date'] = covid_state['date'].apply(lambda x: datetime.datetime.strptime(x,'%Y-%m-%d'))
-            covid_state = covid_state[covid_state.date > datetime.datetime.strptime('2020-03-10','%Y-%m-%d')]
+        fn = 'data/raw/covid-19-data/us-states.csv'
+        covid_state =  pd.read_csv(fn,dtype={'fips':str,}).rename(columns={'cases':'confirmed'})
+        #date   state   fips    cases   deaths
+        covid_state['state_abbr'] = covid_state['state'].apply(lambda x: us_state_abbrev[x] if x in us_state_abbrev.keys() else x)
+        covid_state['geo_label'] = covid_state['state'].apply(lambda x: x.title())
+        covid_state = covid_state[~pd.isnull(covid_state.fips)]
+        covid_state['date'] = covid_state['date'].apply(lambda x: datetime.datetime.strptime(x,'%Y-%m-%d'))
+        covid_state = covid_state[covid_state.date > datetime.datetime.strptime('2020-03-10','%Y-%m-%d')]
 
-            counties = _enhance_covid_stats(counties)
-            covid_state = _enhance_covid_stats(covid_state)
-
-            return covid_state, counties
- 
-        else:
-            raise ValueError('need NYT data to be cloned into data/raw/')
-            # into data/raw: git clone https://github.com/CSSEGISandData
-            return
+        counties = _enhance_covid_stats(counties)
+        covid_state = _enhance_covid_stats(covid_state)
+        return covid_state, counties
 
     #population numbers
     #https://factfinder.census.gov/faces/tableservices/jsf/pages/productview.xhtml?src=bkmk#
