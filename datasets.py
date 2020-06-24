@@ -91,14 +91,19 @@ def _enhance_covid_stats(df):
 
     slpf = 'slope3_r3_new_confirmed'
     df['trend_gate'] = df.groupby('fips', as_index=False, group_keys=False).apply(ts_gate, field=slpf)
+    print("Enhanced statistics")
     return df
 
 class Datasets():
 
     def __init__(self):
         self.date_filter = datetime.datetime.strptime('2020-03-10', '%Y-%m-%d')
-        data_dir = 'data/raw/covid-19-data/'
-        if not os.path.exists(data_dir):
+
+        self.data_dir = 'data/raw/'
+        self.nyt_dir = 'covid-19-data/'
+        self.pop_dir = 'PEP_2018_PEPCUMCHG.ST05/'
+
+        if not os.path.exists(self.data_dir + self.nyt_dir):
             # https://github.com/nytimes/covid-19-data/
             raise ValueError('Need NYT data to be cloned into data/raw/')
         else:
@@ -108,10 +113,15 @@ class Datasets():
             self.state_lambda = lambda x: \
                 us_state_abbrev[x] if x in us_state_abbrev.keys() else x
 
-            self.county_path = data_dir + 'us-counties.csv'
-            self.states_path = data_dir + 'us-states.csv'
+            self.county_path = self.data_dir + self.nyt_dir + 'us-counties.csv'
+            self.states_path = self.data_dir + self.nyt_dir + 'us-states.csv'
+            self.pop_path = self.data_dir + self.pop_dir + \
+                            'PEP_2018_PEPCUMCHG.ST05_with_ann.csv'
+
             self.counties = pd.read_csv(self.county_path, dtype=dtypes)
             self.states = pd.read_csv(self.states_path, dtype=dtypes)
+            self.population = pd.read_csv(
+                self.pop_path, encoding='latin-1', header=1)
             print("Loaded county and state data")
 
     def process_df(self, type):
@@ -121,10 +131,8 @@ class Datasets():
             df = self.states.copy()
 
         df.rename(columns={'cases': 'confirmed'}, inplace=True)
-        dates = df['date'].apply(self.dates_lambda)
-        df.date = dates
-        logic = df.date > self.date_filter
-        df = df[logic]
+        df.date = df['date'].apply(self.dates_lambda)
+        df = df[df.date > self.date_filter]
         abbr = df.state.apply(self.state_lambda)
         df['state_abbr'] = abbr
         if type == "counties":
