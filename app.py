@@ -1,19 +1,19 @@
+import copy
+import datetime
 import os
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+
 import dash
-import dash_html_components as html
 import dash_core_components as dcc
-import dash_table
+import dash_html_components as html
+import pandas as pd
+import plotly.graph_objects as go
 from dash.dependencies import Input, Output
 from dash.exceptions import PreventUpdate
-import datetime 
-import pandas as pd
-import numpy as np
-import math
+from plotly.subplots import make_subplots
+
 from datasets import Datasets
-from ui_components import slider_choose_dates, covid_slider_mark_dates, covid_selectors, caveat_markdown_text, caveat_markdown_text_covid
-import copy
+from ui_components import slider_choose_dates, covid_slider_mark_dates, \
+    covid_selectors, caveat_markdown_text_covid
 
 # Data sets 
 dat = Datasets() 
@@ -111,9 +111,6 @@ for covid_stat_flag_d in col_options['COVID-19 Statistic']: # see ui_components 
                 ttext[0] = '<' + ttext[0]
                 covid_color_scale[(geo_flag, cfield, 'tvals')] = tvals
                 covid_color_scale[(geo_flag, cfield, 'ttext')] = ttext
-
-
-
 
 
 def choose_chloropleth(webgl_support_flag):
