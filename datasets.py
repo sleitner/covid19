@@ -99,6 +99,7 @@ class Datasets():
         self.date_filter = datetime.datetime.strptime('2020-03-10', '%Y-%m-%d')
         data_dir = 'data/raw/covid-19-data/'
         if not os.path.exists(data_dir):
+            # https://github.com/nytimes/covid-19-data/
             raise ValueError('Need NYT data to be cloned into data/raw/')
         else:
             dtypes = {'fips': str}
@@ -113,50 +114,43 @@ class Datasets():
             self.states = pd.read_csv(self.states_path, dtype=dtypes)
             print("Loaded county and state data")
 
-    def process_df(self):
-        self.counties.rename(columns={'cases': 'confirmed'}, inplace=True)
-        dates = self.counties['date'].apply(self.dates_lambda)
-        self.counties.date = dates
-        logic = self.counties.date > self.date_filter
-        self.counties = self.counties[logic]
-        abbr = self.counties.state.apply(self.state_lambda)
-        self.counties['state_abbr'] = abbr
-        nyc = self.counties.county == 'New York City'
-        self.counties.loc[nyc, 'fips'] = '36061'
-        county_name = self.counties.county.apply(lambda x: x.title())
-        county_state = self.counties.state_abbr.apply(lambda x:x.upper())
-        self.counties['geo_label'] = county_name + ', ' + county_state
-        self.counties = self.counties[~pd.isnull(self.counties.fips)]
-        print("Processed county data")
+    def process_df(self, type):
+        if type == "counties":
+            df = self.counties.copy()
+        elif type == "states":
+            df = self.states.copy()
+
+        df.rename(columns={'cases': 'confirmed'}, inplace=True)
+        dates = df['date'].apply(self.dates_lambda)
+        df.date = dates
+        logic = df.date > self.date_filter
+        df = df[logic]
+        abbr = df.state.apply(self.state_lambda)
+        df['state_abbr'] = abbr
+        if type == "counties":
+            nyc = df.county == 'New York City'
+            df.loc[nyc, 'fips'] = '36061'
+            county_name = df.county.apply(lambda x: x.title())
+            county_state = df.state_abbr.apply(lambda x: x.upper())
+            df['geo_label'] = county_name + ', ' + county_state
+        elif type == "states":
+            df['geo_label'] = df['state'].apply(lambda x: x.title())
+        df = df[~pd.isnull(df.fips)]
+
+        if type == "counties":
+            self.counties = df
+        elif type == "states":
+            self.states = df
+
+        print("Processed " + type + " data")
 
 
     def covid_data(self):
-        # https://github.com/nytimes/covid-19-data/
-        counties = self.counties.copy()
-        counties.rename(columns={'cases':'confirmed'}, inplace=True)
-
-        # date   county  state   fips    cases   deaths
-        dates = counties['date'].apply(lambda x: datetime.datetime.strptime(x,'%Y-%m-%d'))
-        counties['date'] = dates
-        logic = counties.date > datetime.datetime.strptime('2020-03-10','%Y-%m-%d')
-        counties = counties[logic]
-        counties['state_abbr'] = counties.state.apply(lambda x: us_state_abbrev[x] if x in us_state_abbrev.keys() else x)
-        counties.loc[counties.county=='New York City','fips']='36061' # associate NYC with a population
-        counties['geo_label'] = counties['county'].apply(lambda x: x.title()) + ', ' + counties['state_abbr'].apply(lambda x:x.upper())
-        counties = counties[~pd.isnull(counties.fips)]
-
-        fn = 'data/raw/covid-19-data/us-states.csv'
-        covid_state =  pd.read_csv(fn,dtype={'fips':str,}).rename(columns={'cases':'confirmed'})
-        #date   state   fips    cases   deaths
-        covid_state['state_abbr'] = covid_state['state'].apply(lambda x: us_state_abbrev[x] if x in us_state_abbrev.keys() else x)
-        covid_state['geo_label'] = covid_state['state'].apply(lambda x: x.title())
-        covid_state = covid_state[~pd.isnull(covid_state.fips)]
-        covid_state['date'] = covid_state['date'].apply(lambda x: datetime.datetime.strptime(x,'%Y-%m-%d'))
-        covid_state = covid_state[covid_state.date > datetime.datetime.strptime('2020-03-10','%Y-%m-%d')]
-
-        counties = _enhance_covid_stats(counties)
-        covid_state = _enhance_covid_stats(covid_state)
-        return covid_state, counties
+        self.process_df("counties")
+        self.process_df("states")
+        counties = _enhance_covid_stats(self.counties)
+        states = _enhance_covid_stats(self.states)
+        return states, counties
 
     #population numbers
     #https://factfinder.census.gov/faces/tableservices/jsf/pages/productview.xhtml?src=bkmk#
