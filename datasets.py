@@ -94,20 +94,45 @@ def _enhance_covid_stats(df):
     return df
 
 class Datasets():
+
     def __init__(self):
+        self.date_filter = datetime.datetime.strptime('2020-03-10', '%Y-%m-%d')
         data_dir = 'data/raw/covid-19-data/'
         if not os.path.exists(data_dir):
             raise ValueError('Need NYT data to be cloned into data/raw/')
         else:
             dtypes = {'fips': str}
+            self.dates_lambda = lambda x: \
+                datetime.datetime.strptime(x,'%Y-%m-%d')
+            self.state_lambda = lambda x: \
+                us_state_abbrev[x] if x in us_state_abbrev.keys() else x
+
             self.county_path = data_dir + 'us-counties.csv'
             self.states_path = data_dir + 'us-states.csv'
             self.counties = pd.read_csv(self.county_path, dtype=dtypes)
             self.states = pd.read_csv(self.states_path, dtype=dtypes)
+            print("Loaded county and state data")
+
+    def process_df(self):
+        self.counties.rename(columns={'cases': 'confirmed'}, inplace=True)
+        dates = self.counties['date'].apply(self.dates_lambda)
+        self.counties.date = dates
+        logic = self.counties.date > self.date_filter
+        self.counties = self.counties[logic]
+        abbr = self.counties.state.apply(self.state_lambda)
+        self.counties['state_abbr'] = abbr
+        nyc = self.counties.county == 'New York City'
+        self.counties.loc[nyc, 'fips'] = '36061'
+        county_name = self.counties.county.apply(lambda x: x.title())
+        county_state = self.counties.state_abbr.apply(lambda x:x.upper())
+        self.counties['geo_label'] = county_name + ', ' + county_state
+        self.counties = self.counties[~pd.isnull(self.counties.fips)]
+        print("Processed county data")
+
 
     def covid_data(self):
         # https://github.com/nytimes/covid-19-data/
-        counties = self.counties
+        counties = self.counties.copy()
         counties.rename(columns={'cases':'confirmed'}, inplace=True)
 
         # date   county  state   fips    cases   deaths
@@ -115,11 +140,9 @@ class Datasets():
         counties['date'] = dates
         logic = counties.date > datetime.datetime.strptime('2020-03-10','%Y-%m-%d')
         counties = counties[logic]
-        counties['state_abbr'] = counties['state'].apply(lambda x: us_state_abbrev[x] if x in us_state_abbrev.keys() else x)
+        counties['state_abbr'] = counties.state.apply(lambda x: us_state_abbrev[x] if x in us_state_abbrev.keys() else x)
         counties.loc[counties.county=='New York City','fips']='36061' # associate NYC with a population
-        counties['geo_label'] = counties['county'].apply(
-            lambda x: x.title()) + ', ' + \
-                counties['state_abbr'].apply(lambda x:x.upper())
+        counties['geo_label'] = counties['county'].apply(lambda x: x.title()) + ', ' + counties['state_abbr'].apply(lambda x:x.upper())
         counties = counties[~pd.isnull(counties.fips)]
 
         fn = 'data/raw/covid-19-data/us-states.csv'
