@@ -15,12 +15,14 @@ from datasets import Datasets
 from ui_components import slider_choose_dates, covid_slider_mark_dates, \
     covid_selectors, caveat_markdown_text_covid
 
-# Data sets 
+# Data sets
+print("--------------------")
 dat = Datasets() 
 covid_state, covid_county = dat.covid_data()
 state_pop, county_pop = dat.population_data()
 c_zip_fips, counties_geojson, states_geojson, county_latlong, state_latlong =  dat.geo_data()
-
+print("Completed loading datasets and computing rolled statistics")
+print("--------------------")
 
 # merge population
 covid_state = pd.merge(covid_state, state_pop, on='state', suffixes=('','_'), how='inner')
