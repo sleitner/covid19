@@ -106,23 +106,35 @@ class Datasets():
         if not os.path.exists(self.data_dir + self.nyt_dir):
             # https://github.com/nytimes/covid-19-data/
             raise ValueError('Need NYT data to be cloned into data/raw/')
-        else:
-            dtypes = {'fips': str}
-            self.dates_lambda = lambda x: \
-                datetime.datetime.strptime(x,'%Y-%m-%d')
-            self.state_lambda = lambda x: \
-                us_state_abbrev[x] if x in us_state_abbrev.keys() else x
 
-            self.county_path = self.data_dir + self.nyt_dir + 'us-counties.csv'
-            self.states_path = self.data_dir + self.nyt_dir + 'us-states.csv'
-            self.pop_path = self.data_dir + self.pop_dir + \
-                            'PEP_2018_PEPCUMCHG.ST05_with_ann.csv'
+        dtypes = {'fips': str}
+        self.dates_lambda = lambda x: \
+            datetime.datetime.strptime(x,'%Y-%m-%d')
+        self.state_lambda = lambda x: \
+            us_state_abbrev[x] if x in us_state_abbrev.keys() else x
 
-            self.counties = pd.read_csv(self.county_path, dtype=dtypes)
-            self.states = pd.read_csv(self.states_path, dtype=dtypes)
-            self.population = pd.read_csv(
-                self.pop_path, encoding='latin-1', header=1)
-            print("Loaded county and state data")
+        self.county_path = self.data_dir + self.nyt_dir + 'us-counties.csv'
+        self.states_path = self.data_dir + self.nyt_dir + 'us-states.csv'
+        self.pop_path = self.data_dir + self.pop_dir + \
+                        'PEP_2018_PEPCUMCHG.ST05_with_ann.csv'
+        self.latlon_path = self.data_dir + '2019_Gaz_counties_national.txt'
+
+        self.counties = pd.read_csv(self.county_path, dtype=dtypes)
+        self.states = pd.read_csv(self.states_path, dtype=dtypes)
+        self.population = pd.read_csv(
+            self.pop_path,
+            encoding='latin-1',
+            header=1
+        )
+        self.states_population = None
+        self.counties_population = None
+
+        self.counties_latlon = pd.read_csv(
+            self.latlon_path,
+            '\t',
+            dtype={'GEOID':str}
+        )
+        print("Loaded raw data")
 
     def process_df(self, type):
         if type == "counties":
@@ -160,21 +172,41 @@ class Datasets():
         states = _enhance_covid_stats(self.states)
         return states, counties
 
+    def process_population(self):
+        col_rename = {
+            'Population Estimate - July 1, 2018': 'pop2018',
+            'Geography':'state'
+        }
+        self.population.rename(columns=col_rename, inplace=True)
+        fn = lambda x: x.split('US')[-1]
+        ids = self.population['Target Geo Id'].apply(fn)
+        states = self.population.state.apply(self.state_lambda)
+        self.population['fips'] = ids
+        self.population['state_abbr'] = states
+
+        logic = self.population['fips'].apply(lambda x: len(x) == 2)
+        cols = ['state', 'state_abbr', 'pop2018']
+        self.states_population = self.population[logic][cols]
+
+        logic = self.population['fips'].apply(lambda x: len(x) == 5)
+        cols = ['fips', 'Geography.2', 'state', 'pop2018']
+        self.counties_population = self.population[logic][cols]
+
+        logic = self.counties_population['fips'] == '36061'
+        self.counties_population.loc[logic, 'pop2018'] = 8.623e6
+
+        logic = self.population['fips'] == '11001'
+        cols = ['fips', 'Geography.2', 'state', 'pop2018']
+        temp = self.population[logic][cols]
+        self.counties_population = pd.concat([self.counties_population, temp])
+
+        print("Processed population data")
+
     #population numbers
     #https://factfinder.census.gov/faces/tableservices/jsf/pages/productview.xhtml?src=bkmk#
     def population_data(self):
-        geo_pop = pd.read_csv('data/raw/PEP_2018_PEPCUMCHG.ST05/PEP_2018_PEPCUMCHG.ST05_with_ann.csv', 
-                         encoding='latin-1', header=1)#,dtype={"Target Geo Id2":str})
-        geo_pop.rename(columns={'Population Estimate - July 1, 2018':'pop2018', 'Geography':'state'}, inplace=True)
-        geo_pop['fips'] = geo_pop['Target Geo Id'].apply(lambda x: x.split('US')[-1])
-        geo_pop['state_abbr'] = geo_pop['state'].apply(lambda x: us_state_abbrev[x] if x in us_state_abbrev.keys() else x)
-        state_pop = geo_pop[geo_pop['fips'].apply(lambda x: len(x)==2)][['state','state_abbr','pop2018']]
-        county_pop = geo_pop[geo_pop['fips'].apply(lambda x: len(x)==5)][['fips','Geography.2','state','pop2018']]
-        county_pop.loc[county_pop['fips']=='36061','pop2018'] = 8.623e6 # hardcoding NYC because data looks like the wrong fips code
-        # you want to match DC to county data 
-        county_pop = pd.concat([county_pop, geo_pop[geo_pop['fips']=='11001'][['fips','Geography.2','state','pop2018']]])
-        return state_pop, county_pop
-
+        self.process_population()
+        return self.states_population, self.counties_population
 
     # geography
     def geo_data(self):
@@ -183,16 +215,18 @@ class Datasets():
         # zip to county from HUD: https://www.huduser.gov/portal/datasets/usps_crosswalk.html
         c_zip_fips = pd.read_csv('data/processed/zip_to_fips.csv', dtype={'fips':str, 'zip':str})
         c_zip_fips.rename({'STATE':'state_abbr'})
+
         # https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json 
         with open('data/raw/geojson-counties-fips.json') as f:
             counties_geojson = json.load(f)
-        # https://eric.clst.org/tech/usgeojson/ 
+        # https://eric.clst.org/tech/usgeojson/
         with open('data/raw/geojson-states-fips.json') as f:
             states_geojson = json.load(f)
+
         #https://www.census.gov/geographies/reference-files/time-series/geo/gazetteer-files.html
         f = 'data/raw/2019_Gaz_counties_national.txt'
         counties_latlong = pd.read_csv(f, '\t', dtype={'GEOID':str})
-        counties_latlong = counties_latlong.rename(columns={'GEOID':'fips', 'NAME':'county', 'USPS':'state', 
+        counties_latlong = counties_latlong.rename(columns={'GEOID':'fips', 'NAME':'county', 'USPS':'state',
             'INTPTLAT':'latitude', counties_latlong.columns[-1]:'longitude'})
         counties_latlong = counties_latlong[['fips', 'county', 'state', 'latitude', 'longitude']]
         # could have used: https://www.kaggle.com/washimahmed/usa-latlong-for-state-abbreviations#statelatlong.csv
