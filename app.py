@@ -20,7 +20,12 @@ print("--------------------")
 dat = Datasets() 
 covid_state, covid_county = dat.covid_data()
 state_pop, county_pop = dat.population_data()
-c_zip_fips, counties_geojson, states_geojson, county_latlong, state_latlong =  dat.geo_data()
+dat.geo_data()
+c_zip_fips = dat.c_zip_fips
+counties_geojson = dat.counties_geojson
+states_geojson = dat.states_geojson
+county_latlong = dat.counties_latlon
+state_latlong = dat.state_latlong
 print("Completed loading datasets and computing rolled statistics")
 print("--------------------")
 

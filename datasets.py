@@ -1,146 +1,23 @@
-import os
-import pandas as pd
-from urllib.request import urlopen
-import json
-from abbreviate_states import abbrev_us_state, us_state_abbrev
 import datetime
+import json
+
 import numpy as np
+import pandas as pd
 
-
-class Calculator:
-
-    @staticmethod
-    def ts_delta(grp, field):
-        return grp[field].diff(periods=1)
-
-    @staticmethod
-    def ts_preactive(grp, field, recovery_period=28):
-        return grp[field]\
-            .rolling(100000, min_periods=1)\
-            .sum()\
-            .shift(recovery_period)
-
-    @staticmethod
-    def ts_active(grp, field, recovery_period=28):
-        return grp[field].rolling(recovery_period, min_periods=1).sum()
-
-    @staticmethod
-    def all_lt_zero(s):
-        ''' 1 for increasing, 0 for decreasing or stable'''
-        return 1 - int(all(i <= 0 or pd.isna(i) for i in s))
-
-    @staticmethod
-    def ts_slope(grp, field, period=3):
-        # need 3 points for polyfit order 1
-        lambda_fn = lambda x: np.polyfit(np.array(range(0, len(x))), x, 1)[0]
-        return grp[field].rolling(
-            window=period,
-            center=True,
-            min_periods=3).apply(lambda_fn, raw=True)
-
-    @staticmethod
-    def ts_mean(grp, field, period):
-        '''calculate rolling trends at the center of the period'''
-        return grp[field].rolling(period, min_periods=1, center=True).mean()
-
-    def new_daily_from_delta(self, df, f):
-        nf = 'new_' + f
-        df[nf] = df.groupby(
-            'fips',
-            as_index=False,
-            group_keys=False
-        ).apply(self.ts_delta, field=f)
-        mindate_inds = df.groupby('fips')['date'].idxmin()
-        df.loc[mindate_inds, nf] = df.loc[mindate_inds, f]
-        return df
-
-    def calc_daily_changes(self, df, fields):
-        for f in fields:
-            df = self.new_daily_from_delta(df, f)
-        return df
-
-    def calc_active_cases(self, df):
-        df['active'] = df.groupby(
-            'fips',
-            as_index=False,
-            group_keys=False
-        ).apply(self.ts_active, field='new_confirmed')
-        return df
-
-    def ts_gate(self, grp, field, period=14):
-        '''14 day period using 3 day slopes '''
-        return grp[field].rolling(
-            window=period + 3 // 2,
-            center=False,
-            min_periods=1).apply(lambda s: self.all_lt_zero(s), raw=True)
-
-
-
-def _enhance_covid_stats(df):
-    calculator = Calculator()
-
-    print("Beginning covid stats analysis...")
-    df = calculator.calc_daily_changes(df, fields=('confirmed', 'deaths'))
-    df = calculator.calc_active_cases(df)
-
-    # recovered is everyone who is no longer active minus everyone who has died
-    # recovered cannot be less than zero though
-    # (real deaths don't obey the 28-day assumption)
-    df['recovered'] = df.groupby('fips', as_index=False, group_keys=False) \
-        .apply(calculator.ts_preactive, field='new_confirmed')
-    diff = (df['recovered'] - df['deaths'])
-    df['recovered'] = diff.apply(lambda x: x if x > 0 else 0)
-
-    print("Calculated initial stats")
-    # calculate rolling averages over various periods
-    for f in ['new_confirmed']:  # ,'new_deaths' ]:
-        for period in [3, 10, ]:  # (3,7, 14):
-            df['r' + str(period) + '_' + f] = \
-                df.groupby('fips', as_index=False, group_keys=False) \
-                    .apply(calculator.ts_mean, field=f, period=period)
-
-    print("Calculated rolling means")
-
-    slp_period = 3
-    rolling = 'r3'
-    f = rolling + '_' + 'new_confirmed'
-    slpf = 'slope' + str(slp_period) + '_' + f
-    df[slpf] = \
-        df.groupby('fips', as_index=False, group_keys=False) \
-            .apply(calculator.ts_slope, field=f, period=slp_period)
-
-    slp_period = 7
-    rolling = 'r10'
-    f = rolling + '_' + 'new_confirmed'
-    slpf = 'slope' + str(slp_period) + '_' + f
-    df[slpf] = \
-        df.groupby('fips', as_index=False, group_keys=False) \
-            .apply(calculator.ts_slope, field=f, period=slp_period)
-
-    print("Completed calculating slopes")
-
-    slpf = 'slope3_r3_new_confirmed'
-    df['trend_gate'] = df.groupby(
-        'fips',
-        as_index=False,
-        group_keys=False
-    ).apply(calculator.ts_gate, field=slpf)
-    print("Completed calculating enhanced statistics")
-    return df
-
+from abbreviate_states import us_state_abbrev
 
 abbrevs = us_state_abbrev.keys()
-
-
 
 
 class Datasets:
 
     @staticmethod
-    def dates_lambda(x): return datetime.datetime.strptime(x, '%Y-%m-%d')
+    def dates_lambda(x):
+        return datetime.datetime.strptime(x, '%Y-%m-%d')
 
     @staticmethod
-    def state_lambda(x): return us_state_abbrev[x] if x in abbrevs else x
+    def state_lambda(x):
+        return us_state_abbrev[x] if x in abbrevs else x
 
     def __init__(self):
         self.date_filter = datetime.datetime.strptime('2020-03-10', '%Y-%m-%d')
@@ -179,6 +56,39 @@ class Datasets:
 
         print("Loaded raw data")
 
+    @staticmethod
+    def _enhance_covid_stats(df):
+        print("Beginning covid stats analysis...")
+
+        calculator = Calculator()
+        df = calculator.calc_daily_changes(df, fields=('confirmed', 'deaths'))
+        df = calculator.calc_active_cases(df)
+
+        fn = calculator.ts_preactive
+        df['recovered'] = calculator.fips_apply(df, fn, 'new_confirmed')
+        diff = (df['recovered'] - df['deaths'])
+        df['recovered'] = diff.apply(lambda x: x if x > 0 else 0)
+
+        print("Calculated initial stats")
+
+        for field in ['new_confirmed']:
+            for period in [3, 10, ]:
+                code = 'r' + str(period) + '_' + field
+                fn = calculator.ts_mean
+                df[code] = calculator.fips_apply(df, fn, field, period=period)
+
+        print("Calculated rolling means")
+
+        df = calculator.calc_slope(3, 'r3', df)
+        df = calculator.calc_slope(7, 'r10', df)
+        print("Completed calculating slopes")
+
+        slpf = 'slope3_r3_new_confirmed'
+        df['trend_gate'] = calculator.fips_apply(df, calculator.ts_gate, slpf)
+
+        print("Completed calculating enhanced statistics")
+        return df
+
     def process_df(self, geo):
         df = None
         if geo == "counties":
@@ -211,8 +121,8 @@ class Datasets:
     def covid_data(self):
         self.process_df("counties")
         self.process_df("states")
-        counties = _enhance_covid_stats(self.counties)
-        states = _enhance_covid_stats(self.states)
+        counties = self._enhance_covid_stats(self.counties)
+        states = self._enhance_covid_stats(self.states)
         return states, counties
 
     def process_population(self):
@@ -266,8 +176,73 @@ class Datasets:
 
         print("Processed geography data")
 
-        return self.c_zip_fips, \
-               self.counties_geojson, \
-               self.states_geojson, \
-               self.counties_latlon, \
-               self.state_latlong
+
+class Calculator:
+
+    @staticmethod
+    def ts_delta(grp, field):
+        return grp[field].diff(periods=1)
+
+    @staticmethod
+    def ts_preactive(grp, field, recovery_period=28):
+        return grp[field] \
+            .rolling(100000, min_periods=1) \
+            .sum() \
+            .shift(recovery_period)
+
+    @staticmethod
+    def ts_active(grp, field, recovery_period=28):
+        return grp[field].rolling(recovery_period, min_periods=1).sum()
+
+    @staticmethod
+    def all_lt_zero(s):
+        return 1 - int(all(i <= 0 or pd.isna(i) for i in s))
+
+    @staticmethod
+    def ts_slope(grp, field, period=3):
+        # need 3 points for polyfit order 1
+        def polyfit_interp(x):
+            return np.polyfit(np.array(range(0, len(x))), x, 1)[0]
+
+        return grp[field].rolling(
+            window=period,
+            center=True,
+            min_periods=3).apply(polyfit_interp, raw=True)
+
+    @staticmethod
+    def ts_mean(grp, field, period):
+        return grp[field].rolling(period, min_periods=1, center=True).mean()
+
+    @staticmethod
+    def fips_apply(df, fn, field, **kwargs):
+        return df \
+            .groupby('fips', as_index=False, group_keys=False) \
+            .apply(fn, field=field, **kwargs)
+
+    def new_daily_from_delta(self, df, f):
+        nf = 'new_' + f
+        df[nf] = self.fips_apply(df, self.ts_delta, f)
+        mindate_inds = df.groupby('fips')['date'].idxmin()
+        df.loc[mindate_inds, nf] = df.loc[mindate_inds, f]
+        return df
+
+    def calc_daily_changes(self, df, fields):
+        for f in fields:
+            df = self.new_daily_from_delta(df, f)
+        return df
+
+    def calc_active_cases(self, df):
+        df['active'] = self.fips_apply(df, self.ts_active, 'new_confirmed')
+        return df
+
+    def ts_gate(self, grp, field, period=14):
+        return grp[field].rolling(
+            window=period + 3 // 2,
+            center=False,
+            min_periods=1).apply(lambda s: self.all_lt_zero(s), raw=True)
+
+    def calc_slope(self, slp_period, rolling, df):
+        f = rolling + '_' + 'new_confirmed'
+        slpf = 'slope' + str(slp_period) + '_' + f
+        df[slpf] = self.fips_apply(df, self.ts_slope, f, period=slp_period)
+        return df
