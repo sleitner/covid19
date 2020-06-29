@@ -135,7 +135,7 @@ app = dash.Dash(
     __name__, external_stylesheets=["https://codepen.io/chriddyp/pen/bWLwgP.css", 'https://codepen.io/chriddyp/pen/brPBPO.css']
 )
 
-app.title = 'Alex\'s COVID-19 Dashboard'
+app.title = 'COVID-19 Dashboard'
 
 app.layout = html.Div([
     html.Div(id='webgl-support-input', children='static-input', style=dict(visibility="hidden", display='None')),
