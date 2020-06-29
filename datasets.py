@@ -161,7 +161,6 @@ class Datasets:
         self.process_population()
         return self.states_population, self.counties_population
 
-    # geography
     def geo_data(self):
         cols = {
             'GEOID': 'fips',
@@ -200,10 +199,8 @@ class Calculator:
 
     @staticmethod
     def ts_slope(grp, field, period=3):
-        # need 3 points for polyfit order 1
         def polyfit_interp(x):
             return np.polyfit(np.array(range(0, len(x))), x, 1)[0]
-
         return grp[field].rolling(
             window=period,
             center=True,
@@ -219,30 +216,38 @@ class Calculator:
             .groupby('fips', as_index=False, group_keys=False) \
             .apply(fn, field=field, **kwargs)
 
-    def new_daily_from_delta(self, df, f):
+    @staticmethod
+    def new_daily_from_delta(df, f):
         nf = 'new_' + f
-        df[nf] = self.fips_apply(df, self.ts_delta, f)
-        mindate_inds = df.groupby('fips')['date'].idxmin()
-        df.loc[mindate_inds, nf] = df.loc[mindate_inds, f]
+        df[nf] = Calculator.fips_apply(df, Calculator.ts_delta, f)
+        min_date_index = df.groupby('fips')['date'].idxmin()
+        df.loc[min_date_index, nf] = df.loc[min_date_index, f]
         return df
 
-    def calc_daily_changes(self, df, fields):
+    @staticmethod
+    def calc_daily_changes(df, fields):
         for f in fields:
-            df = self.new_daily_from_delta(df, f)
+            df = Calculator.new_daily_from_delta(df, f)
         return df
 
-    def calc_active_cases(self, df):
-        df['active'] = self.fips_apply(df, self.ts_active, 'new_confirmed')
+    @staticmethod
+    def calc_active_cases(df):
+        fn = Calculator.ts_active
+        df['active'] = Calculator.fips_apply(df, fn, 'new_confirmed')
         return df
 
-    def ts_gate(self, grp, field, period=14):
+    @staticmethod
+    def ts_gate(grp, field, period=14):
         return grp[field].rolling(
             window=period + 3 // 2,
             center=False,
-            min_periods=1).apply(lambda s: self.all_lt_zero(s), raw=True)
+            min_periods=1
+        ).apply(lambda s: Calculator.all_lt_zero(s), raw=True)
 
-    def calc_slope(self, slp_period, rolling, df):
+    @staticmethod
+    def calc_slope(slp_period, rolling, df):
         f = rolling + '_' + 'new_confirmed'
         slpf = 'slope' + str(slp_period) + '_' + f
-        df[slpf] = self.fips_apply(df, self.ts_slope, f, period=slp_period)
+        fn = Calculator.ts_slope
+        df[slpf] = Calculator.fips_apply(df, fn, f, period=slp_period)
         return df
