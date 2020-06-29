@@ -56,45 +56,23 @@ class Datasets:
 
         print("Loaded raw data")
 
-    @staticmethod
-    def _enhance_covid_stats(df):
-        print("Beginning covid stats analysis...")
-
-        calculator = Calculator()
-        df = calculator.calc_daily_changes(df, fields=('confirmed', 'deaths'))
-        df = calculator.calc_active_cases(df)
-
-        fn = calculator.ts_preactive
-        df['recovered'] = calculator.fips_apply(df, fn, 'new_confirmed')
-        diff = (df['recovered'] - df['deaths'])
-        df['recovered'] = diff.apply(lambda x: x if x > 0 else 0)
-
-        print("Calculated initial stats")
-
-        for field in ['new_confirmed']:
-            for period in [3, 10, ]:
-                code = 'r' + str(period) + '_' + field
-                fn = calculator.ts_mean
-                df[code] = calculator.fips_apply(df, fn, field, period=period)
-
-        print("Calculated rolling means")
-
-        df = calculator.calc_slope(3, 'r3', df)
-        df = calculator.calc_slope(7, 'r10', df)
-        print("Completed calculating slopes")
-
-        slpf = 'slope3_r3_new_confirmed'
-        df['trend_gate'] = calculator.fips_apply(df, calculator.ts_gate, slpf)
-
-        print("Completed calculating enhanced statistics")
-        return df
-
-    def process_df(self, geo):
+    def _define_df(self, geo):
         df = None
         if geo == "counties":
             df = self.counties.copy()
         elif geo == "states":
             df = self.states.copy()
+        return df
+
+    def _assign_df(self, df, geo):
+        if geo == "counties":
+            self.counties = df
+        elif geo == "states":
+            self.states = df
+
+    def process_df(self, geo):
+
+        df = self._define_df(geo)
 
         df.rename(columns={'cases': 'confirmed'}, inplace=True)
         df.date = df['date'].apply(self.dates_lambda)
@@ -111,19 +89,52 @@ class Datasets:
             df['geo_label'] = df['state'].apply(lambda x: x.title())
         df = df[~pd.isnull(df.fips)]
 
-        if geo == "counties":
-            self.counties = df
-        elif geo == "states":
-            self.states = df
+        self._assign_df(df, geo)
 
         print("Processed " + geo + " data")
+
+    def enhance_covid_stats(self, geo):
+        print("Beginning enhanced stats analysis...")
+
+        df = self._define_df(geo)
+
+        calculator = Calculator()
+        df = calculator.calc_daily_changes(df, fields=('confirmed', 'deaths'))
+        df = calculator.calc_active_cases(df)
+
+        fn = calculator.ts_preactive
+        df['recovered'] = calculator.fips_apply(df, fn, 'new_confirmed')
+        diff = (df['recovered'] - df['deaths'])
+        df['recovered'] = diff.apply(lambda x: x if x > 0 else 0)
+
+        print("Calculated initial stats")
+
+        f = 'new_confirmed'
+        for period in [3, 10, ]:
+            code = 'r' + str(period) + '_' + f
+            fn = calculator.ts_mean
+            df[code] = calculator.fips_apply(df, fn, f, period=period)
+
+        print("Calculated rolling means")
+
+        df = calculator.calc_slope(3, 'r3', df)
+        df = calculator.calc_slope(7, 'r10', df)
+        print("Completed calculating slopes")
+
+        slpf = 'slope3_r3_new_confirmed'
+        df['trend_gate'] = calculator.fips_apply(df, calculator.ts_gate, slpf)
+
+        self._assign_df(df, geo)
+
+        print("Completed calculating enhanced statistics")
+        return df
 
     def covid_data(self):
         self.process_df("counties")
         self.process_df("states")
-        counties = self._enhance_covid_stats(self.counties)
-        states = self._enhance_covid_stats(self.states)
-        return states, counties
+        self.enhance_covid_stats("counties")
+        self.enhance_covid_stats("states")
+        return self.states, self.counties
 
     def process_population(self):
         col_rename = {
